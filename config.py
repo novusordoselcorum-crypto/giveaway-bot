@@ -14,7 +14,7 @@ OPEN_CHANNEL_URL = "https://t.me/aziznabmw"  # Открытый канал
 CLOSED_CHANNEL_ID = -1003519289043  # Закрытый канал BMW
 
 # === ОПЛАТА ===
-LAVA_TOP_URL = "https://app.lava.top/ru/products/ca4c6acc-490a-46c2-9035-063d31263d15?currency=RUB"
+LAVA_TOP_URL = "https://app.lava.top/ru/products/bb106507-1f2e-4580-b074-b175a536065f/431e037c-f3c8-40db-9850-87857f25d014?currency=RUB"
 LAVA_SECRET_KEY = ""  # Добавь позже из личного кабинета Lava Top
 PRICE = 1000  # Цена в рублях
 
