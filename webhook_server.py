@@ -2,78 +2,75 @@
 Веб-сервер для приёма вебхуков от Lava Top
 Запускается вместе с ботом на Railway
 """
-
+ 
 import asyncio
 import hashlib
 import hmac
 import json
 import logging
 from aiohttp import web
-
+ 
 from config import LAVA_SECRET_KEY
 from bot import process_lava_payment, bot, init_db
-
+ 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-def verify_signature(data: bytes, signature: str) -> bool:
-    """Проверка подписи вебхука от Lava Top"""
+ 
+def verify_webhook(request) -> bool:
+    """Проверка API ключа в заголовке X-Api-Key"""
+    api_key = request.headers.get("X-Api-Key", "")
+    
     if not LAVA_SECRET_KEY:
-        logger.warning("LAVA_SECRET_KEY not set, skipping signature verification")
+        logger.warning("LAVA_SECRET_KEY not set, skipping verification")
         return True
     
-    expected = hmac.new(
-        LAVA_SECRET_KEY.encode(),
-        data,
-        hashlib.sha256
-    ).hexdigest()
-    
-    return hmac.compare_digest(expected, signature)
-
+    return api_key == LAVA_SECRET_KEY
+ 
 async def handle_lava_webhook(request: web.Request) -> web.Response:
     """Обработчик вебхука от Lava Top"""
     try:
+        # Проверяем API ключ
+        if not verify_webhook(request):
+            logger.warning("Invalid webhook API key")
+            return web.Response(status=403, text="Invalid API key")
+        
         # Получаем данные
         data = await request.read()
-        signature = request.headers.get("X-Lava-Signature", "")
-        
-        # Проверяем подпись
-        if not verify_signature(data, signature):
-            logger.warning("Invalid webhook signature")
-            return web.Response(status=403, text="Invalid signature")
         
         # Парсим JSON
         payload = json.loads(data)
         logger.info(f"Lava webhook received: {payload}")
         
-        # Извлекаем данные
-        # Структура зависит от Lava Top API, примерно так:
-        event_type = payload.get("event")
+        # Извлекаем данные по документации Lava Top
+        event_type = payload.get("type")
         
         if event_type == "payment.success":
-            payment_data = payload.get("data", {})
-            payment_id = payment_data.get("id")
+            # Получаем email покупателя и ищем по нему
+            buyer_email = payload.get("buyerEmail")
+            contract_id = payload.get("contractId")
             
-            # user_id передаётся в metadata при создании платежа
-            metadata = payment_data.get("metadata", {})
-            user_id = metadata.get("user_id")
+            # customFields может содержать user_id если передали при создании
+            custom_fields = payload.get("customFields", {})
+            user_id = custom_fields.get("user_id") or custom_fields.get("telegram_id")
             
             if user_id:
-                await process_lava_payment(int(user_id), payment_id)
+                await process_lava_payment(int(user_id), contract_id)
                 logger.info(f"Payment processed for user {user_id}")
             else:
-                logger.error("No user_id in payment metadata")
+                # Если user_id не передан, логируем для ручной обработки
+                logger.warning(f"Payment received but no user_id. Email: {buyer_email}, Contract: {contract_id}")
+                # Можно добавить поиск по email в базе
         
         return web.Response(status=200, text="OK")
         
     except Exception as e:
         logger.error(f"Webhook error: {e}")
         return web.Response(status=500, text=str(e))
-
+ 
 async def handle_health(request: web.Request) -> web.Response:
     """Health check для Railway"""
     return web.Response(status=200, text="OK")
-
+ 
 async def start_webhook_server():
     """Запуск веб-сервера"""
     app = web.Application()
@@ -93,7 +90,7 @@ async def start_webhook_server():
     
     logger.info(f"Webhook server started on port {port}")
     return runner
-
+ 
 async def main():
     """Запуск бота + веб-сервера"""
     await init_db()
@@ -109,6 +106,6 @@ async def main():
         await dp.start_polling(bot)
     finally:
         await runner.cleanup()
-
+ 
 if __name__ == "__main__":
     asyncio.run(main())
